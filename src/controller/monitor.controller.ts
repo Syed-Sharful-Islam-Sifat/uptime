@@ -1,14 +1,12 @@
 import { Request, Response, NextFunction } from "express";
 import MonitorService from "../services/monitor.service";
+import HttpError from "../lib/helper/HttpError";
 
 const MonitorController = {
-  async create(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const monitor = await MonitorService.create(req.body);
-      res.status(201).json({ data: monitor });
-    } catch (err) {
-      next(err);
-    }
+  async create(req: Request, res: Response, next: NextFunction): Promise<any> {
+    const { id } = (req as any).user;
+    const result = await MonitorService.create(req.body, id);
+    return result;
   },
   async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {

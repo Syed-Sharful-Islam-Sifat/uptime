@@ -5,6 +5,7 @@ import pino from "pino";
 import { env } from "./config/env";
 import requestLogger from "./middleware/requestLogger";
 import router from "./routes";
+import monitorRouter from "./routes/ping.routes";
 const logger = pino({ name: "Server start" });
 const app = express();
 

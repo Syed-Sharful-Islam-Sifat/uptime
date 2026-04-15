@@ -17,7 +17,8 @@ const envSchema = z.object({
   POSTGRES_USER: z.string(),
   POSTGRES_PASSWORD: z.string(),
   POSTGRES_DB: z.string().default("uptime-monitor"),
-  DB_PORT:z.coerce.number().default(5432)
+  TELEGRAM_BOT_TOKEN: z.string(),
+  DB_PORT: z.coerce.number().default(5432),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
