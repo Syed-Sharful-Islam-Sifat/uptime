@@ -1,10 +1,11 @@
-import { PingRepository } from "../repositories/ping.repository";
-import { MonitorRepository } from "../repositories/monitor.repository";
-import { sendTelegramAlert } from "../lib/telegram/telegraam";
+import { Sentry } from "../config/sentry";
 import HttpError from "../lib/helper/HttpError";
+import { sendTelegramAlert } from "../lib/telegram/telegraam";
+import { MonitorRepository } from "../repositories/monitor.repository";
+import { PingRepository } from "../repositories/ping.repository";
 
 export const PingService = {
-  // called by the cron job for each monitor
+  // Called by the cron job for each monitor
   pingMonitor: async (monitorId: number): Promise<void> => {
     const monitor = await MonitorRepository.findById(String(monitorId));
     if (!monitor) return;
@@ -16,73 +17,74 @@ export const PingService = {
 
     try {
       const res = await fetch(monitor.url, {
-        signal: AbortSignal.timeout(10000), // 10s timeout
+        signal: AbortSignal.timeout(10_000),
       });
 
       latency = Date.now() - start;
       response_code = res.status;
       status = res.ok ? "up" : "down";
     } catch {
-      // unreachable or timed out — stays "down"
-      latency = null;
-      response_code = null;
+      // Unreachable host or timed out — stays "down"
     }
 
-    // store the ping result
-    await PingRepository.create({
-      monitor_id: monitorId,
-      status,
-      latency,
-      response_code,
-    });
+    // Fetch the last ping and store the new result in parallel
+    const [lastPing] = await Promise.all([
+      PingRepository.findLastByMonitorId(monitorId),
+      PingRepository.create({ monitor_id: monitorId, status, latency, response_code }),
+    ]);
 
-    // only alert if: current is "down" AND last ping was "up" (avoid spam)
-    if (status === "down" && monitor.telegram_chat_id) {
-      const lastPing = await PingRepository.findLastByMonitorId(monitorId);
-      const wasUp = !lastPing || lastPing.status === "up";
+    if (!monitor.telegram_chat_id) return;
 
-      if (wasUp) {
-        const message =
-          `🚨 *Monitor Down Alert*\n\n` +
-          `*Name:* ${monitor.name}\n` +
-          `*URL:* ${monitor.url}\n` +
-          `*Status:* ❌ Down\n` +
-          `*Time:* ${new Date().toUTCString()}`;
+    const wasUp = !lastPing || lastPing.status === "up";
+    const wasDown = lastPing?.status === "down";
 
-        await sendTelegramAlert(monitor.telegram_chat_id, message);
-      }
+    if (status === "down" && wasUp) {
+      const message =
+        `🚨 *Monitor Down Alert*\n\n` +
+        `*Name:* ${monitor.name}\n` +
+        `*URL:* ${monitor.url}\n` +
+        `*Status:* ❌ Down\n` +
+        `*Time:* ${new Date().toUTCString()}`;
+
+      await sendTelegramAlert(monitor.telegram_chat_id, message).catch((err) =>
+        Sentry.captureException(err),
+      );
     }
 
-    // alert recovery — was down, now up
-    if (status === "up" && monitor.telegram_chat_id) {
-      const lastPing = await PingRepository.findLastByMonitorId(monitorId);
-      const wasDown = lastPing && lastPing.status === "down";
+    if (status === "up" && wasDown) {
+      const message =
+        `✅ *Monitor Recovered*\n\n` +
+        `*Name:* ${monitor.name}\n` +
+        `*URL:* ${monitor.url}\n` +
+        `*Latency:* ${latency}ms\n` +
+        `*Time:* ${new Date().toUTCString()}`;
 
-      if (wasDown) {
-        const message =
-          `✅ *Monitor Recovered*\n\n` +
-          `*Name:* ${monitor.name}\n` +
-          `*URL:* ${monitor.url}\n` +
-          `*Latency:* ${latency}ms\n` +
-          `*Time:* ${new Date().toUTCString()}`;
-
-        await sendTelegramAlert(monitor.telegram_chat_id, message);
-      }
+      await sendTelegramAlert(monitor.telegram_chat_id, message).catch((err) =>
+        Sentry.captureException(err),
+      );
     }
   },
 
-  // for the API — get ping history for a monitor
-  getPingsByMonitorId: async (monitorId: string, limit = 20, offset = 0) => {
+  // For the API — get paginated ping history for a monitor (IDOR-safe)
+  getPingsByMonitorId: async (
+    monitorId: string,
+    userId: number,
+    limit: number,
+    cursor?: number,
+  ) => {
     const monitor = await MonitorRepository.findById(monitorId);
-    if (!monitor) {
+
+    if (!monitor || monitor.user_id !== userId) {
       throw new HttpError({ statusCode: 404, message: "Monitor not found" });
     }
 
     const [pings, uptime] = await Promise.all([
-      PingRepository.findAllByMonitorId(Number(monitorId), limit, offset),
+      PingRepository.findByMonitorId(Number(monitorId), limit, cursor),
       PingRepository.getUptimePercentage(Number(monitorId)),
     ]);
 
-    return { pings, uptime };
+    const nextCursor = pings.length === limit ? (pings[pings.length - 1]?.id ?? null) : null;
+
+    return { pings, uptime, nextCursor };
   },
 };

@@ -1,18 +1,14 @@
-import { Request, Response, NextFunction } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { PingService } from "../services/ping.service";
 
 const PingController = {
-  async getByMonitorId(
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ): Promise<any> {
-    const { monitorId}  = req.params;
-    const limit = Number(req.query.limit) || 20;
-    const offset = Number(req.query.offset) || 0;
+  async getByMonitorId(req: Request, _res: Response, _next: NextFunction): Promise<unknown> {
+    const monitorId = String(req.params["monitorId"]);
+    const limit = Math.min(Number(req.query["limit"]) || 20, 100);
+    const cursorRaw = req.query["cursor"];
+    const cursor = cursorRaw ? Number(cursorRaw) : undefined;
 
-    const result = await PingService.getPingsByMonitorId(monitorId as string, limit, offset);
-    return result;
+    return PingService.getPingsByMonitorId(monitorId, req.user!.id, limit, cursor);
   },
 };
 

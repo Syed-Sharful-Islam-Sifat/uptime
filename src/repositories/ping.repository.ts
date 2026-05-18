@@ -1,5 +1,7 @@
 import pool from "../config/database";
-import { Ping } from "../models/ping";
+import type { Ping } from "../models/ping";
+
+const PING_FIELDS = `id, monitor_id, status, latency, response_code, checked_at`;
 
 export const PingRepository = {
   create: async (data: {
@@ -9,60 +11,63 @@ export const PingRepository = {
     response_code: number | null;
   }): Promise<Ping> => {
     const { monitor_id, status, latency, response_code } = data;
-
-    const result = await pool.query<any>(
+    const result = await pool.query<Ping>(
       `INSERT INTO pings (monitor_id, status, latency, response_code, checked_at)
        VALUES ($1, $2, $3, $4, NOW())
-       RETURNING *`,
-      [monitor_id, status, latency, response_code]
+       RETURNING ${PING_FIELDS}`,
+      [monitor_id, status, latency, response_code],
     );
-
-    return result.rows[0];
+    return result.rows[0]!;
   },
 
-  // get last ping for a monitor — to check if we already alerted
   findLastByMonitorId: async (monitor_id: number): Promise<Ping | null> => {
     const result = await pool.query<Ping>(
-      `SELECT * FROM pings
+      `SELECT ${PING_FIELDS} FROM pings
        WHERE monitor_id = $1
-       ORDER BY checked_at DESC
-       LIMIT 1`,
-      [monitor_id]
+       ORDER BY id DESC LIMIT 1`,
+      [monitor_id],
     );
     return result.rows[0] ?? null;
   },
 
-  // get all pings for a monitor with pagination
-  findAllByMonitorId: async (
+  // Cursor-based pagination — avoids expensive OFFSET sequential scans.
+  // Pass cursor = last seen ping id; omit for first page.
+  findByMonitorId: async (
     monitor_id: number,
-    limit = 20,
-    offset = 0
+    limit: number,
+    cursor?: number,
   ): Promise<Ping[]> => {
+    if (cursor !== undefined) {
+      const result = await pool.query<Ping>(
+        `SELECT ${PING_FIELDS} FROM pings
+         WHERE monitor_id = $1 AND id < $2
+         ORDER BY id DESC LIMIT $3`,
+        [monitor_id, cursor, limit],
+      );
+      return result.rows;
+    }
+
     const result = await pool.query<Ping>(
-      `SELECT * FROM pings
+      `SELECT ${PING_FIELDS} FROM pings
        WHERE monitor_id = $1
-       ORDER BY checked_at DESC
-       LIMIT $2 OFFSET $3`,
-      [monitor_id, limit, offset]
+       ORDER BY id DESC LIMIT $2`,
+      [monitor_id, limit],
     );
     return result.rows;
   },
 
-  // get uptime percentage for a monitor (last 100 pings)
+  // Calculates uptime over the most recent 100 pings
   getUptimePercentage: async (monitor_id: number): Promise<number> => {
     const result = await pool.query<{ uptime: string }>(
-      `SELECT
-        ROUND(
-          COUNT(*) FILTER (WHERE status = 'up') * 100.0 / NULLIF(COUNT(*), 0),
-          2
+      `SELECT ROUND(
+          COUNT(*) FILTER (WHERE status = 'up') * 100.0 / NULLIF(COUNT(*), 0), 2
         ) AS uptime
        FROM (
          SELECT status FROM pings
          WHERE monitor_id = $1
-         ORDER BY checked_at DESC
-         LIMIT 100
+         ORDER BY id DESC LIMIT 100
        ) recent`,
-      [monitor_id]
+      [monitor_id],
     );
     return parseFloat(result.rows[0]?.uptime ?? "0");
   },

@@ -1,23 +1,37 @@
 import cron from "node-cron";
+import { Sentry } from "../config/sentry";
 import { MonitorRepository } from "../repositories/monitor.repository";
 import { PingService } from "../services/ping.service";
 
+const BATCH_SIZE = 100;
+
+const runPingJob = async () => {
+  let lastId = 0;
+  let totalPinged = 0;
+
+  // Cursor-based batching — never loads the full monitors table into memory
+  while (true) {
+    const batch = await MonitorRepository.findActiveBatch(lastId, BATCH_SIZE);
+    if (batch.length === 0) break;
+
+    await Promise.allSettled(batch.map((monitor) => PingService.pingMonitor(monitor.id)));
+
+    totalPinged += batch.length;
+    lastId = batch[batch.length - 1]?.id ?? lastId;
+
+    if (batch.length < BATCH_SIZE) break;
+  }
+
+  console.log(`✅ [${new Date().toISOString()}] Pinged ${totalPinged} monitors`);
+};
+
 export const startPingJob = () => {
-  // runs every minute — checks all active monitors
   cron.schedule("* * * * *", async () => {
     console.log(`🔍 [${new Date().toISOString()}] Running ping job...`);
-
     try {
-      const monitors = await MonitorRepository.findAll();
-      const activeMonitors = monitors.filter(m => m.status === "up");
-
-      // ping all active monitors concurrently
-      await Promise.allSettled(
-        activeMonitors.map(monitor => PingService.pingMonitor(monitor.id))
-      );
-
-      console.log(`✅ Pinged ${activeMonitors.length} monitors`);
+      await runPingJob();
     } catch (error) {
+      Sentry.captureException(error);
       console.error("❌ Ping job failed:", error);
     }
   });
