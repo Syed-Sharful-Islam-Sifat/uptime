@@ -12,6 +12,7 @@ const runPingJob = async () => {
   // Cursor-based batching — never loads the full monitors table into memory
   while (true) {
     const batch = await MonitorRepository.findActiveBatch(lastId, BATCH_SIZE);
+    console.log(batch)
     if (batch.length === 0) break;
 
     await Promise.allSettled(batch.map((monitor) => PingService.pingMonitor(monitor.id)));

@@ -36,10 +36,12 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   }
 
   Sentry.captureException(err);
+  const error = err instanceof Error ? err : new Error(String(err));
+  requestLogger.logger.error({ err: error, stack: error.stack }, "Unhandled error");
   res.status(500).json({
     type: "ERROR",
-    message: "Something went wrong",
+    message: env.isDevelopment ? error.message : "Something went wrong",
     result: null,
-    error: null,
+    error: env.isDevelopment ? error.stack ?? null : null,
   });
 });

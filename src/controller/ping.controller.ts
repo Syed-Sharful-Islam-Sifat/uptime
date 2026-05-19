@@ -8,7 +8,7 @@ const PingController = {
     const cursorRaw = req.query["cursor"];
     const cursor = cursorRaw ? Number(cursorRaw) : undefined;
 
-    return PingService.getPingsByMonitorId(monitorId, req.user!.id, limit, cursor);
+    return PingService.getPingsByMonitorId(monitorId, req.user!.id!, limit, cursor);
   },
 };
 

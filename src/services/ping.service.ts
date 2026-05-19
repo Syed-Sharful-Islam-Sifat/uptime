@@ -3,6 +3,7 @@ import HttpError from "../lib/helper/HttpError";
 import { sendTelegramAlert } from "../lib/telegram/telegraam";
 import { MonitorRepository } from "../repositories/monitor.repository";
 import { PingRepository } from "../repositories/ping.repository";
+import { UserRepository } from "../repositories/user.repository";
 
 export const PingService = {
   // Called by the cron job for each monitor
@@ -27,13 +28,16 @@ export const PingService = {
       // Unreachable host or timed out — stays "down"
     }
 
-    // Fetch the last ping and store the new result in parallel
-    const [lastPing] = await Promise.all([
+    // Fetch the last ping, store the new result, update monitor status, and get user — all in parallel
+    const [lastPing, user] = await Promise.all([
       PingRepository.findLastByMonitorId(monitorId),
       PingRepository.create({ monitor_id: monitorId, status, latency, response_code }),
-    ]);
+      MonitorRepository.updateStatus(monitorId, status),
+      UserRepository.findById(monitor.user_id),
+    ]).then(([lastPing, , , user]) => [lastPing, user] as const);
 
-    if (!monitor.telegram_chat_id) return;
+    const chatId = monitor.telegram_chat_id ?? user?.telegram_chat_id ?? null;
+    if (!chatId) return;
 
     const wasUp = !lastPing || lastPing.status === "up";
     const wasDown = lastPing?.status === "down";
@@ -46,7 +50,7 @@ export const PingService = {
         `*Status:* ❌ Down\n` +
         `*Time:* ${new Date().toUTCString()}`;
 
-      await sendTelegramAlert(monitor.telegram_chat_id, message).catch((err) =>
+      await sendTelegramAlert(chatId, message).catch((err) =>
         Sentry.captureException(err),
       );
     }
@@ -59,7 +63,7 @@ export const PingService = {
         `*Latency:* ${latency}ms\n` +
         `*Time:* ${new Date().toUTCString()}`;
 
-      await sendTelegramAlert(monitor.telegram_chat_id, message).catch((err) =>
+      await sendTelegramAlert(chatId, message).catch((err) =>
         Sentry.captureException(err),
       );
     }

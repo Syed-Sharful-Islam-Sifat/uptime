@@ -7,6 +7,7 @@ import { app } from "./app";
 import { connectDB } from "./config/database";
 import { env } from "./config/env";
 import { startPingJob } from "./jobs/ping.job";
+import { registerTelegramWebhook } from "./lib/telegram/telegraam";
 import requestLogger from "./middleware/requestLogger";
 
 const logger = requestLogger.logger;
@@ -19,10 +20,14 @@ const start = async () => {
   try {
     await connectDB();
     startPingJob();
-  } catch {
-    logger.error("Failed to connect to database");
+  } catch (err) {
+    logger.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
+
+  registerTelegramWebhook(`${env.APP_URL}/api/v1/telegram/webhook`).catch((err) => {
+    logger.warn(`Telegram webhook registration failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
 };
 
 start();

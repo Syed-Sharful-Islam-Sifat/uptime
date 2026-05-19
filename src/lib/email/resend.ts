@@ -47,3 +47,36 @@ export const sendVerificationEmail = async (
     throw new Error(`Resend error: ${error.message}`);
   }
 };
+
+export const sendAdminOtpEmail = async (toEmail: string, code: string): Promise<void> => {
+  if (!resend) {
+    console.log(`\n[DEV] Admin OTP for ${toEmail}: ${code}\n`);
+    return;
+  }
+
+  const { error } = await resend.emails.send({
+    from: env.RESEND_FROM_EMAIL,
+    to: toEmail,
+    subject: "Your admin login code — Uptime Monitor",
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+        <h2 style="margin-bottom:8px">Admin login code</h2>
+        <p style="color:#555;margin-bottom:24px">
+          Use the code below to log in to the admin panel.
+          It expires in <strong>1 minute</strong>.
+        </p>
+        <div style="font-size:40px;font-weight:700;letter-spacing:12px;text-align:center;
+                    background:#f4f4f4;padding:24px;border-radius:8px;margin-bottom:24px">
+          ${code}
+        </div>
+        <p style="color:#aaa;font-size:12px;margin-top:32px">
+          If you did not request this code, someone may be attempting to access the admin panel.
+        </p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    throw new Error(`Resend error: ${error.message}`);
+  }
+};

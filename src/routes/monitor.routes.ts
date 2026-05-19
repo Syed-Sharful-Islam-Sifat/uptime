@@ -9,6 +9,7 @@ const router = Router();
 
 router.post("/", authenticate, validate(createMonitorSchema), apiMiddleWare(MonitorController.create));
 router.get("/", authenticate, apiMiddleWare(MonitorController.getAll));
+router.get("/:id", authenticate, apiMiddleWare(MonitorController.getById));
 router.delete("/:id", authenticate, apiMiddleWare(MonitorController.delete));
 
 export default router;
